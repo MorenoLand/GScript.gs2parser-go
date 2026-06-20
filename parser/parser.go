@@ -13,6 +13,7 @@ type Parser struct {
 	pos    int
 	lamb   int
 	consts map[string]ast.Expr
+	stop   map[string]bool
 }
 
 func Parse(src string) (root *ast.Block, err error) {
@@ -319,6 +320,9 @@ func (p *Parser) expr(min int) (ast.Expr, error) {
 	}
 	for {
 		op := p.cur().Lit
+		if p.stop != nil && p.stop[op] {
+			break
+		}
 		if op == "[" {
 			p.next()
 			args, err := p.exprList("]")
@@ -391,12 +395,12 @@ func (p *Parser) expr(min int) (ast.Expr, error) {
 				if p.toks[p.pos-1].Lit == "<" {
 					close = ">"
 				}
-				lo, err = p.expr(0)
+				lo, err = p.exprUntil(",")
 				if err != nil {
 					return nil, err
 				}
 				p.expect(",")
-				hi, err = p.expr(0)
+				hi, err = p.exprUntil(close)
 				if err != nil {
 					return nil, err
 				}
@@ -437,6 +441,17 @@ func (p *Parser) expr(min int) (ast.Expr, error) {
 		left = b
 	}
 	return left, nil
+}
+
+func (p *Parser) exprUntil(stops ...string) (ast.Expr, error) {
+	old := p.stop
+	p.stop = map[string]bool{}
+	for _, s := range stops {
+		p.stop[s] = true
+	}
+	e, err := p.expr(0)
+	p.stop = old
+	return e, err
 }
 
 func (p *Parser) prefix() (ast.Expr, error) {
