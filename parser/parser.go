@@ -15,7 +15,16 @@ type Parser struct {
 	consts map[string]ast.Expr
 }
 
-func Parse(src string) (*ast.Block, error) {
+func Parse(src string) (root *ast.Block, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(error); ok {
+				err = e
+			} else {
+				err = fmt.Errorf("%v", r)
+			}
+		}
+	}()
 	toks, err := lexer.Lex(src)
 	if err != nil {
 		return nil, err
@@ -214,7 +223,14 @@ func (p *Parser) ifStmt() (ast.Stmt, error) {
 
 func (p *Parser) forStmt() (ast.Stmt, error) {
 	p.expect("(")
-	first, _ := p.expr(0)
+	var first ast.Expr
+	if !p.cur().Is(";") {
+		var err error
+		first, err = p.expr(0)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if p.match(":") {
 		r, err := p.expr(0)
 		if err != nil {
