@@ -416,9 +416,12 @@ func (c *Compiler) Expr(e ast.Expr) error {
 		c.Expr(n.Value)
 		c.Expr(n.Lower)
 		if n.Higher != nil {
+			c.bc.Convert(string(n.Lower.Type()), string(ast.Number))
 			c.Expr(n.Higher)
+			c.bc.Convert(string(n.Higher.Type()), string(ast.Number))
 			c.bc.Op(opcode.InRange)
 		} else {
+			c.bc.Convert(string(n.Lower.Type()), string(ast.Object))
 			c.bc.Op(opcode.InObj)
 		}
 	case *ast.Ternary:
