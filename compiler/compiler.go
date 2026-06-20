@@ -652,6 +652,36 @@ func (c *Compiler) logical(n *ast.Binary) error {
 		}
 	}
 	parent := c.logicalParent
+	if n.Op == "||" {
+		nextFail := c.label()
+		c.fail = nextFail
+		c.logicalParent = n.Op
+		c.Expr(n.Left)
+		c.logicalParent = parent
+		c.bc.Convert(string(n.Left.Type()), string(ast.Number))
+		c.bc.Op(opcode.Or)
+		c.bc.Byte(0xF4)
+		c.bc.Short(0)
+		c.at(c.success, c.bc.Pos()-2)
+		c.set(nextFail, c.bc.OpIndex())
+		c.success, c.fail = os, of
+		c.logicalParent = n.Op
+		c.Expr(n.Right)
+		c.logicalParent = parent
+		c.bc.Convert(string(n.Right.Type()), string(ast.Number))
+		if first && c.inline {
+			if label != 0 {
+				c.set(label, c.bc.OpIndex())
+			}
+			c.bc.Op(opcode.InlineConditional)
+		}
+		if first {
+			c.inside = false
+			c.inlineLogical = inlineLogical
+			c.success, c.fail = os, of
+		}
+		return nil
+	}
 	c.logicalParent = n.Op
 	c.Expr(n.Left)
 	c.logicalParent = parent
