@@ -22,6 +22,7 @@ type Compiler struct {
 	logicalParent                  string
 	lastCallReturn                 bool
 	negFloats                      map[string]int
+	newObjectCount                 int
 	Joins                          map[string]bool
 }
 
@@ -391,6 +392,8 @@ func (c *Compiler) newStmt(n *ast.NewStmt) error {
 	c.bc.Byte(0xF4)
 	c.bc.Short(0)
 	loc := c.bc.Pos() - 2
+	prev := c.newObjectCount
+	c.newObjectCount++
 	if n.Body != nil {
 		if err := c.Stmt(n.Body); err != nil {
 			return err
@@ -398,6 +401,14 @@ func (c *Compiler) newStmt(n *ast.NewStmt) error {
 	}
 	c.bc.Op(opcode.WithEnd)
 	c.bc.Short(int16(c.bc.OpIndex()), loc)
+	for i := 0; i < c.newObjectCount-prev; i++ {
+		c.bc.Op(opcode.TypeArray)
+		c.bc.Op(opcode.SwapLastOps)
+		c.str("addcontrol", opcode.TypeVar)
+		c.bc.Op(opcode.Call)
+		c.bc.Op(opcode.IndexDec)
+	}
+	c.newObjectCount--
 	return nil
 }
 
