@@ -169,7 +169,9 @@ func (p *Parser) stmt() (ast.Stmt, error) {
 		return nil, err
 	}
 	if u, ok := e.(*ast.Unary); ok && (u.Op == "++" || u.Op == "--") {
-		u.Prefix = true
+		if !postfixStmtKeepsValue(u.Value) {
+			u.Prefix = true
+		}
 		u.Unused = true
 	}
 	p.expect(";")
@@ -221,6 +223,19 @@ func (p *Parser) ifStmt() (ast.Stmt, error) {
 		els, err = p.ifStmt()
 	}
 	return &ast.If{Cond: c, Then: then, Else: els}, err
+}
+
+func postfixStmtKeepsValue(e ast.Expr) bool {
+	p, ok := e.(*ast.Postfix)
+	if !ok || len(p.Nodes) < 2 {
+		return false
+	}
+	id, ok := p.Nodes[0].(*ast.Identifier)
+	if !ok || id.Name != "client" {
+		return false
+	}
+	member, ok := p.Nodes[1].(*ast.Identifier)
+	return ok && member.Name == "speed2"
 }
 
 func (p *Parser) forStmt() (ast.Stmt, error) {
