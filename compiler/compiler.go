@@ -773,9 +773,9 @@ func (c *Compiler) call(n *ast.FnCall) error {
 	}
 	args := n.Args
 	if cmd.flags&cmdReverseArgs != 0 {
-		for i := len(args) - 1; i >= 0; i-- {
+		for i, j := len(args)-1, 0; i >= 0; i, j = i-1, j+1 {
 			c.Expr(args[i])
-			c.sigConvert(args[i], cmd.sig, len(args)-1-i)
+			c.sigConvertReverse(args[i], cmd.sig, j)
 		}
 	} else {
 		if len(args) == 0 && cmd.op == opcode.ObjTokenize {
@@ -816,6 +816,20 @@ func (c *Compiler) sigConvert(e ast.Expr, sig string, i int) {
 		return
 	}
 	switch sig[i+1] {
+	case 'f':
+		c.bc.Convert(string(e.Type()), string(ast.Number))
+	case 'o':
+		c.bc.Convert(string(e.Type()), string(ast.Object))
+	case 's':
+		c.bc.Convert(string(e.Type()), string(ast.String))
+	}
+}
+func (c *Compiler) sigConvertReverse(e ast.Expr, sig string, i int) {
+	idx := len(sig) - 2 - i
+	if idx < 0 {
+		return
+	}
+	switch sig[idx] {
 	case 'f':
 		c.bc.Convert(string(e.Type()), string(ast.Number))
 	case 'o':
