@@ -139,6 +139,9 @@ func (c *Compiler) fn(n *ast.FnDecl) error {
 	name := n.Name
 	if n.Object != "" {
 		name = n.Object + "." + name
+		if fnObjectAlias(n) {
+			name = n.Name + "," + name
+		}
 	}
 	if n.Public {
 		name = "public." + name
@@ -163,6 +166,21 @@ func (c *Compiler) fn(n *ast.FnDecl) error {
 		c.bc.Op(opcode.Ret)
 	}
 	return nil
+}
+
+func fnObjectAlias(n *ast.FnDecl) bool {
+	if n.Object == "" || n.Body == nil || len(n.Body.Stmts) != 1 {
+		return false
+	}
+	ret, ok := n.Body.Stmts[0].(*ast.Return)
+	if !ok {
+		return false
+	}
+	call, ok := ret.Value.(*ast.FnCall)
+	if !ok || call.Object != nil || len(call.Args) != 0 {
+		return false
+	}
+	return call.Func.Text() == n.Name
 }
 
 func (c *Compiler) ifStmt(n *ast.If) error {
@@ -724,7 +742,7 @@ func (c *Compiler) logical(n *ast.Binary) error {
 		}
 		return nil
 	}
-	if n.Op == "&&" && (!c.inline || inlineLogical || !first) {
+	if n.Op == "&&" && (!c.inline || inlineLogical || !first || hasLogicalOp(n.Left, "||")) {
 		nextSuccess := c.label()
 		c.success = nextSuccess
 		c.logicalParent = n.Op
@@ -732,6 +750,7 @@ func (c *Compiler) logical(n *ast.Binary) error {
 		c.logicalParent = parent
 		c.bc.Convert(string(n.Left.Type()), string(ast.Number))
 		c.set(nextSuccess, c.bc.OpIndex())
+		failTarget := c.fail
 		c.success, c.fail = os, of
 		if c.inline {
 			c.bc.Op(opcode.And)
@@ -740,7 +759,7 @@ func (c *Compiler) logical(n *ast.Binary) error {
 		}
 		c.bc.Byte(0xF4)
 		c.bc.Short(0)
-		c.at(c.fail, c.bc.Pos()-2)
+		c.at(failTarget, c.bc.Pos()-2)
 		c.logicalParent = n.Op
 		c.Expr(n.Right)
 		c.logicalParent = parent
@@ -799,6 +818,14 @@ func (c *Compiler) logical(n *ast.Binary) error {
 		c.success, c.fail = os, of
 	}
 	return nil
+}
+
+func hasLogicalOp(e ast.Expr, op string) bool {
+	n, ok := e.(*ast.Binary)
+	if !ok {
+		return false
+	}
+	return n.Op == op || hasLogicalOp(n.Left, op) || hasLogicalOp(n.Right, op)
 }
 
 func (c *Compiler) postfix(n *ast.Postfix) error {
