@@ -614,6 +614,18 @@ func (c *Compiler) unary(n *ast.Unary) error {
 		c.success, c.fail = os, of
 		c.set(label, c.bc.OpIndex())
 	}
+	if (n.Op == "++" || n.Op == "--") && !n.Prefix {
+		c.bc.Op(opcode.CopyLastOps)
+		c.bc.Op(opcode.ConvToFloat)
+		c.bc.Op(opcode.SwapLastOps)
+		if n.Op == "++" {
+			c.bc.Op(opcode.Inc)
+		} else {
+			c.bc.Op(opcode.Dec)
+		}
+		c.bc.Op(opcode.IndexDec)
+		return nil
+	}
 	switch n.Op {
 	case "++":
 		c.bc.Op(opcode.Inc)
