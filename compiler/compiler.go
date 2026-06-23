@@ -77,6 +77,8 @@ func (c *Compiler) Stmt(s ast.Stmt) error {
 		return c.ifStmt(n)
 	case *ast.While:
 		return c.whileStmt(n)
+	case *ast.DoWhile:
+		return c.doWhileStmt(n)
 	case *ast.For:
 		return c.forStmt(n)
 	case *ast.ForEach:
@@ -251,6 +253,32 @@ func (c *Compiler) whileStmt(n *ast.While) error {
 	c.bc.Byte(0xF4)
 	c.bc.Short(0)
 	c.at(c.cont, c.bc.Pos()-2)
+	c.set(c.brk, c.bc.OpIndex())
+	c.success, c.fail, c.brk, c.cont = os, of, ob, oc
+	return nil
+}
+
+func (c *Compiler) doWhileStmt(n *ast.DoWhile) error {
+	os, of, ob, oc := c.success, c.fail, c.brk, c.cont
+	direct := c.directBlock
+	start := c.bc.OpIndex()
+	c.brk, c.cont = c.label(), c.label()
+	c.bc.Op(opcode.CmdCall)
+	c.directBlock = false
+	if err := c.Stmt(n.Body); err != nil {
+		c.directBlock = direct
+		return err
+	}
+	c.directBlock = direct
+	c.set(c.cont, c.bc.OpIndex())
+	c.inline = false
+	if err := c.Expr(n.Cond); err != nil {
+		return err
+	}
+	c.inline = true
+	c.bc.Convert(string(n.Cond.Type()), string(ast.Number))
+	c.bc.Op(opcode.SetIndexTrue)
+	c.bc.DynamicNumber(int32(start))
 	c.set(c.brk, c.bc.OpIndex())
 	c.success, c.fail, c.brk, c.cont = os, of, ob, oc
 	return nil
@@ -495,10 +523,16 @@ func (c *Compiler) Expr(e ast.Expr) error {
 		if len(n.Dims) == 0 {
 			return nil
 		}
-		c.num(int32(n.Dims[0]))
+		if err := c.Expr(n.Dims[0]); err != nil {
+			return err
+		}
+		c.bc.Convert(string(n.Dims[0].Type()), string(ast.Number))
 		c.bc.Op(opcode.ArrayNew)
 		for _, d := range n.Dims[1:] {
-			c.num(int32(d))
+			if err := c.Expr(d); err != nil {
+				return err
+			}
+			c.bc.Convert(string(d.Type()), string(ast.Number))
 			c.bc.Op(opcode.ArrayNewMultidim)
 		}
 	case *ast.NewObject:
@@ -817,6 +851,18 @@ func dynamicMemberAdd(e ast.Expr) bool {
 
 func (c *Compiler) call(n *ast.FnCall) error {
 	isObj := n.Object != nil
+	if isObj {
+		switch n.Func.Text() {
+		case "lower":
+			return c.objectAliasCall("lowercase", n.Object)
+		case "upper":
+			return c.objectAliasCall("uppercase", n.Object)
+		case "substring":
+			if len(n.Args) == 1 {
+				n.Args = append(n.Args, &ast.IntLit{Value: -1})
+			}
+		}
+	}
 	table := calls
 	if isObj {
 		table = objCalls
@@ -886,6 +932,17 @@ func (c *Compiler) call(n *ast.FnCall) error {
 	if n.Func.Text() == "join" && len(n.Args) == 1 && n.Args[0].Type() == ast.String {
 		c.Joins[n.Args[0].Text()] = true
 	}
+	return nil
+}
+
+func (c *Compiler) objectAliasCall(name string, target ast.Expr) error {
+	c.bc.Op(opcode.TypeArray)
+	if err := c.Expr(target); err != nil {
+		return err
+	}
+	c.str(name, opcode.TypeVar)
+	c.bc.Op(opcode.Call)
+	c.lastCallReturn = true
 	return nil
 }
 
@@ -1042,6 +1099,8 @@ func hasFunctionCall(s ast.Stmt) bool {
 		return hasFunctionCall(n.Cond) || hasFunctionCall(n.Then) || hasFunctionCall(n.Else)
 	case *ast.While:
 		return hasFunctionCall(n.Cond) || hasFunctionCall(n.Body)
+	case *ast.DoWhile:
+		return hasFunctionCall(n.Cond) || hasFunctionCall(n.Body)
 	case *ast.For:
 		return hasFunctionCall(n.Init) || hasFunctionCall(n.Cond) || hasFunctionCall(n.Post) || hasFunctionCall(n.Body)
 	case *ast.ForEach:
@@ -1098,6 +1157,12 @@ func hasFunctionCall(s ast.Stmt) bool {
 	case *ast.NewObject:
 		for _, a := range n.Args {
 			if hasFunctionCall(a) {
+				return true
+			}
+		}
+	case *ast.NewArray:
+		for _, d := range n.Dims {
+			if hasFunctionCall(d) {
 				return true
 			}
 		}

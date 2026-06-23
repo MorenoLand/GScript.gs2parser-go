@@ -119,6 +119,21 @@ func (p *Parser) stmt() (ast.Stmt, error) {
 		body, err := p.stmt()
 		return &ast.While{Cond: c, Body: body}, err
 	}
+	if p.match("do") {
+		body, err := p.stmt()
+		if err != nil {
+			return nil, err
+		}
+		p.expect("while")
+		p.expect("(")
+		c, err := p.expr(0)
+		if err != nil {
+			return nil, err
+		}
+		p.expect(")")
+		p.expect(";")
+		return &ast.DoWhile{Cond: c, Body: body}, nil
+	}
 	if p.match("with") {
 		p.expect("(")
 		t, err := p.expr(0)
@@ -170,6 +185,22 @@ func (p *Parser) stmt() (ast.Stmt, error) {
 	e, err := p.expr(0)
 	if err != nil {
 		return nil, err
+	}
+	if p.match(",") {
+		b := &ast.Block{}
+		appendBlockStmt(b, e)
+		for {
+			next, err := p.expr(0)
+			if err != nil {
+				return nil, err
+			}
+			appendBlockStmt(b, next)
+			if !p.match(",") {
+				break
+			}
+		}
+		p.expect(";")
+		return b, nil
 	}
 	p.expect(";")
 	return e, nil
@@ -533,11 +564,13 @@ func (p *Parser) prefix() (ast.Expr, error) {
 		return &ast.Cast{Kind: ast.String, Value: e}, err
 	case "new":
 		if p.match("[") {
-			var dims []int
+			var dims []ast.Expr
 			for {
-				v := p.expectKind(lexer.Int)
-				n, _ := strconv.Atoi(v.Lit)
-				dims = append(dims, n)
+				e, err := p.expr(0)
+				if err != nil {
+					return nil, err
+				}
+				dims = append(dims, e)
 				p.expect("]")
 				if !p.match("[") {
 					break

@@ -76,3 +76,34 @@ func TestCompileDetailedTabIdentifier(t *testing.T) {
 		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
 	}
 }
+
+func TestCompileDetailedSupportsCommonGS2CompatibilitySyntax(t *testing.T) {
+	src := `function onCreated() {
+  temp.low = player.account.lower();
+  temp.up = player.account.upper();
+  temp.tail = player.account.substring(3);
+  foo(), temp.ready = false;
+  temp.es = 4;
+  this.logtypes = {"a", "b"};
+  temp.a = new [this.logtypes.size()];
+  temp.b = new [temp.es];
+  temp.c = new [3 * 10];
+  temp.grid = new[temp.es][3 * 10];
+  new GuiWindowCtrl(Test_Window) {
+    if (temp.ready == false) temp.ready = true;
+    for (temp.i = 0; temp.i < 2; temp.i++) temp.ready = temp.i;
+  }
+  do {
+    temp.es--;
+  } while (temp.es > 0);
+  hideimgs(200, 210);
+  temp.k = keycode(z);
+}`
+	res := CompileDetailed(src)
+	if len(res.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %#v", res.Diagnostics)
+	}
+	if len(res.Bytecode) == 0 {
+		t.Fatal("expected bytecode")
+	}
+}

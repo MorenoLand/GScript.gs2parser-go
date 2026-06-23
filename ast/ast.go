@@ -92,6 +92,14 @@ type While struct {
 func (*While) node() {}
 func (*While) stmt() {}
 
+type DoWhile struct {
+	Cond Expr
+	Body Stmt
+}
+
+func (*DoWhile) node() {}
+func (*DoWhile) stmt() {}
+
 type With struct {
 	Target Expr
 	Body   Stmt
@@ -295,7 +303,7 @@ func (n *FnCall) Text() string { return n.Func.Text() + "()" }
 
 type NewArray struct {
 	BaseExpr
-	Dims []int
+	Dims []Expr
 }
 
 func (n *NewArray) Type() Type   { return Array }
