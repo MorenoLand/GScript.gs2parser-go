@@ -74,7 +74,7 @@ func (b *Builder) patchOrAppend(data []byte, pos ...int) {
 func (b *Builder) DynamicNumber(v int32) {
 	offset := byte(0)
 	switch b.last {
-	case opcode.SetIndex, opcode.SetIndexTrue, opcode.TypeNumber:
+	case opcode.SetIndex, opcode.SetIndexTrue, opcode.TypeNumber, opcode.SetLocal, opcode.GetLocal:
 		offset = 3
 	case opcode.TypeVar, opcode.TypeString:
 	default:

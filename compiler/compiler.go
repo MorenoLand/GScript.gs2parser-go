@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -24,7 +25,13 @@ type Compiler struct {
 	lastCallReturn                 bool
 	negFloats                      map[string]int
 	newObjectCount                 int
+	fnCallLocals                   callLocals
 	Joins                          map[string]bool
+}
+
+type callLocals struct {
+	slots map[string]int32
+	order []string
 }
 
 func Compile(root *ast.Block) ([]byte, error) {
@@ -126,7 +133,7 @@ func (c *Compiler) Stmt(s ast.Stmt) error {
 			return err
 		}
 		_, topCall := n.(*ast.FnCall)
-		if c.lastCallReturn && topCall && c.directBlock {
+		if c.lastCallReturn && topCall {
 			c.bc.Op(opcode.IndexDec)
 			c.lastCallReturn = false
 		}
@@ -137,6 +144,9 @@ func (c *Compiler) Stmt(s ast.Stmt) error {
 }
 
 func (c *Compiler) fn(n *ast.FnDecl) error {
+	prevCallLocals := c.fnCallLocals
+	c.fnCallLocals = repeatedBareCallLocals(n.Body)
+	defer func() { c.fnCallLocals = prevCallLocals }()
 	jmpLoc := 0
 	if n.EmitPrejump {
 		c.bc.Op(opcode.SetIndex)
@@ -165,6 +175,7 @@ func (c *Compiler) fn(n *ast.FnDecl) error {
 	if hasFunctionCall(n.Body) {
 		c.bc.Op(opcode.CmdCall)
 	}
+	c.emitCallLocals()
 	if err := c.Stmt(n.Body); err != nil {
 		return err
 	}
@@ -611,16 +622,28 @@ func (c *Compiler) binary(n *ast.Binary) error {
 		c.bc.Op(op)
 		return nil
 	}
+	if v, ok := foldedNumber(n); ok {
+		c.number(v)
+		return nil
+	}
 	c.Expr(n.Left)
 	if numericOp(n.Op) {
-		c.bc.Convert(string(n.Left.Type()), string(ast.Number))
+		c.convertNumeric(n.Left)
 	}
 	c.Expr(n.Right)
 	if numericOp(n.Op) {
-		c.bc.Convert(string(n.Right.Type()), string(ast.Number))
+		c.convertNumeric(n.Right)
 	}
 	c.bc.Op(opFor(n.Op))
 	return nil
+}
+
+func (c *Compiler) convertNumeric(e ast.Expr) {
+	if _, ok := e.(*ast.Ternary); ok {
+		c.bc.Op(opcode.ConvToFloat)
+		return
+	}
+	c.bc.Convert(string(e.Type()), string(ast.Number))
 }
 
 func (c *Compiler) unary(n *ast.Unary) error {
@@ -898,7 +921,11 @@ func (c *Compiler) call(n *ast.FnCall) error {
 				c.Expr(n.Func)
 			}
 		} else {
-			c.Expr(n.Func)
+			if slot, ok := c.fnCallLocals.slots[n.Func.Text()]; ok {
+				c.local(opcode.GetLocal, slot)
+			} else {
+				c.Expr(n.Func)
+			}
 		}
 		if isObj {
 			c.bc.Op(opcode.MemberAccess)
@@ -1014,11 +1041,220 @@ func reservedConst(name string) (int32, bool) {
 		return 0, false
 	}
 }
-func (c *Compiler) num(v int32) { c.bc.Op(opcode.TypeNumber); c.bc.DynamicNumber(v) }
+func (c *Compiler) num(v int32)                     { c.bc.Op(opcode.TypeNumber); c.bc.DynamicNumber(v) }
+func (c *Compiler) local(op opcode.Opcode, v int32) { c.bc.Op(op); c.bc.DynamicNumber(v) }
+func (c *Compiler) number(v float64) {
+	if math.Trunc(v) == v && v >= math.MinInt32 && v <= math.MaxInt32 {
+		c.num(int32(v))
+		return
+	}
+	s := strconv.FormatFloat(v, 'f', 9, 64)
+	s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
+	if s == "-0" {
+		s = "0"
+	}
+	c.bc.Op(opcode.TypeNumber)
+	c.bc.DoubleNumber(s)
+}
+func (c *Compiler) emitCallLocals() {
+	for _, name := range c.fnCallLocals.order {
+		c.str(name, opcode.TypeVar)
+		c.bc.Op(opcode.ResolveProperty)
+		c.local(opcode.SetLocal, c.fnCallLocals.slots[name])
+		c.bc.Op(opcode.IndexDec)
+	}
+}
 func (c *Compiler) str(s string, op opcode.Opcode) {
 	id := c.bc.StringID(s)
 	c.bc.Op(op)
 	c.bc.DynamicUnsigned(uint32(id))
+}
+func foldedNumber(n *ast.Binary) (float64, bool) {
+	if !foldableNumberOp(n.Op) {
+		return 0, false
+	}
+	l, ok := literalNumber(n.Left)
+	if !ok {
+		return 0, false
+	}
+	r, ok := literalNumber(n.Right)
+	if !ok {
+		return 0, false
+	}
+	switch n.Op {
+	case "+":
+		return l + r, true
+	case "-":
+		return l - r, true
+	case "*":
+		return l * r, true
+	case "/":
+		if r == 0 {
+			return 0, false
+		}
+		return l / r, true
+	case "%":
+		if r == 0 {
+			return 0, false
+		}
+		return math.Mod(l, r), true
+	}
+	return 0, false
+}
+func literalNumber(e ast.Expr) (float64, bool) {
+	switch n := e.(type) {
+	case *ast.IntLit:
+		return float64(n.Value), true
+	case *ast.ConstLit:
+		v, err := strconv.ParseFloat(n.Value, 64)
+		return v, err == nil
+	case *ast.FloatLit:
+		v, err := strconv.ParseFloat(n.Value, 64)
+		if err != nil {
+			return 0, false
+		}
+		return v, true
+	case *ast.Unary:
+		if n.Op == "-" {
+			v, ok := literalNumber(n.Value)
+			return -v, ok
+		}
+	}
+	return 0, false
+}
+func foldableNumberOp(op string) bool {
+	switch op {
+	case "+", "-", "*", "/", "%":
+		return true
+	}
+	return false
+}
+func repeatedBareCallLocals(s ast.Stmt) callLocals {
+	counts := map[string]int{}
+	var order []string
+	var stmt func(ast.Stmt)
+	var expr func(ast.Expr)
+	add := func(name string) {
+		if counts[name] == 0 {
+			order = append(order, name)
+		}
+		counts[name]++
+	}
+	expr = func(e ast.Expr) {
+		switch n := e.(type) {
+		case nil:
+		case *ast.FnCall:
+			if cacheableBareCall(n) {
+				add(n.Func.Text())
+			}
+			expr(n.Object)
+			expr(n.Func)
+			for _, a := range n.Args {
+				expr(a)
+			}
+		case *ast.Postfix:
+			for _, x := range n.Nodes {
+				expr(x)
+			}
+		case *ast.ArrayIndex:
+			for _, x := range n.Exprs {
+				expr(x)
+			}
+		case *ast.Cast:
+			expr(n.Value)
+		case *ast.In:
+			expr(n.Value)
+			expr(n.Lower)
+			expr(n.Higher)
+		case *ast.Ternary:
+			expr(n.Cond)
+			expr(n.Left)
+			expr(n.Right)
+		case *ast.Binary:
+			expr(n.Left)
+			expr(n.Right)
+		case *ast.Unary:
+			expr(n.Value)
+		case *ast.NewArray:
+			for _, d := range n.Dims {
+				expr(d)
+			}
+		case *ast.NewObject:
+			for _, a := range n.Args {
+				expr(a)
+			}
+		case *ast.List:
+			for _, a := range n.Args {
+				expr(a)
+			}
+		}
+	}
+	stmt = func(s ast.Stmt) {
+		switch n := s.(type) {
+		case nil:
+		case *ast.Block:
+			for _, x := range n.Stmts {
+				stmt(x)
+			}
+		case *ast.FnDecl:
+		case *ast.If:
+			expr(n.Cond)
+			stmt(n.Then)
+			stmt(n.Else)
+		case *ast.While:
+			expr(n.Cond)
+			stmt(n.Body)
+		case *ast.DoWhile:
+			expr(n.Cond)
+			stmt(n.Body)
+		case *ast.For:
+			expr(n.Init)
+			expr(n.Cond)
+			expr(n.Post)
+			stmt(n.Body)
+		case *ast.ForEach:
+			expr(n.Name)
+			expr(n.Range)
+			stmt(n.Body)
+		case *ast.Switch:
+			expr(n.Target)
+			for _, cs := range n.Cases {
+				for _, e := range cs.Exprs {
+					expr(e)
+				}
+				stmt(cs.Body)
+			}
+		case *ast.With:
+			expr(n.Target)
+		case *ast.NewStmt:
+			for _, a := range n.Args {
+				expr(a)
+			}
+		case *ast.Return:
+			expr(n.Value)
+		case ast.Expr:
+			expr(n)
+		}
+	}
+	stmt(s)
+	out := callLocals{slots: map[string]int32{}}
+	for _, name := range order {
+		if counts[name] > 1 {
+			out.slots[name] = int32(len(out.order))
+			out.order = append(out.order, name)
+		}
+	}
+	return out
+}
+func cacheableBareCall(n *ast.FnCall) bool {
+	if n.Object != nil {
+		return false
+	}
+	if _, ok := n.Func.(*ast.Identifier); !ok {
+		return false
+	}
+	_, builtin := calls[n.Func.Text()]
+	return !builtin
 }
 func boolU32(v bool) uint32 {
 	if v {

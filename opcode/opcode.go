@@ -50,6 +50,12 @@ const (
 )
 
 const (
+	SetLocal        = Unknown45
+	GetLocal        = Unknown46
+	ResolveProperty = Unknown47
+)
+
+const (
 	Assign Opcode = 50 + iota
 	FuncParamsEnd
 	Inc
