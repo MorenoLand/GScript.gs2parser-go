@@ -357,6 +357,8 @@ func (c *Compiler) foreachStmt(n *ast.ForEach) error {
 	c.set(c.brk, c.bc.OpIndex())
 	c.brk, c.cont = ob, oc
 	c.bc.Op(opcode.IndexDec)
+	c.bc.Op(opcode.IndexDec)
+	c.bc.Op(opcode.IndexDec)
 	return nil
 }
 

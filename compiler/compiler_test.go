@@ -74,6 +74,26 @@ func TestCompileConvertsTernaryBeforeNumericBinaryOp(t *testing.T) {
 	}
 }
 
+func TestCompileForeachCleansIteratorStack(t *testing.T) {
+	ops := compileOps(t, `function onCreated() {
+  for (temp.d: {"up", "left"}) temp.j++;
+}`)
+	if !bytes.Contains(ops, []byte{byte(opcode.SetIndex), 0xF4}) || !bytes.Contains(ops, []byte{byte(opcode.IndexDec), byte(opcode.IndexDec), byte(opcode.IndexDec)}) {
+		t.Fatal("expected foreach to pop iterator stack values after loop")
+	}
+}
+
+func TestCompileMinMaxPreservesArgumentOrder(t *testing.T) {
+	code := compileCode(t, `function onCreated() {
+  temp.cursor = max(temp.cursor - 1, 0);
+}`)
+	ops := segment(t, code, bytecode.SegmentBytecode)
+	cursor := stringID(t, segment(t, code, bytecode.SegmentStringTable), "cursor")
+	if !bytes.Contains(ops, []byte{byte(opcode.Temp), byte(opcode.TypeVar), 0xF0, byte(cursor), byte(opcode.MemberAccess), byte(opcode.ConvToFloat), byte(opcode.TypeNumber), 0xF3, 0x01, byte(opcode.Sub), byte(opcode.TypeNumber), 0xF3, 0x00, byte(opcode.Max)}) {
+		t.Fatal("expected max arguments in source order")
+	}
+}
+
 func compileOps(t *testing.T, src string) []byte {
 	t.Helper()
 	return segment(t, compileCode(t, src), bytecode.SegmentBytecode)

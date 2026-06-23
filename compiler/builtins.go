@@ -21,7 +21,7 @@ type builtin struct {
 var calls = map[string]builtin{
 	"sleep": {op: opcode.Sleep, sig: "-f"}, "sin": {op: opcode.Sin, sig: "ff"}, "char": {op: opcode.Char, sig: "ff"}, "cos": {op: opcode.Cos, sig: "ff"}, "arctan": {op: opcode.Arctan, sig: "ff"},
 	"vecx": {op: opcode.VecX, sig: "ff"}, "vecy": {op: opcode.VecY, sig: "ff"}, "abs": {op: opcode.Abs, sig: "ff"}, "exp": {op: opcode.Exp, sig: "ff"}, "log": {op: opcode.Log, sig: "fff"},
-	"min": {op: opcode.Min, sig: "fff"}, "max": {op: opcode.Max, sig: "fff"}, "pow": {op: opcode.Pow, flags: cmdReturn, sig: "fff"}, "random": {op: opcode.Random, sig: "fff"},
+	"min": {op: opcode.Min, flags: cmdReturn, sig: "fff"}, "max": {op: opcode.Max, flags: cmdReturn, sig: "fff"}, "pow": {op: opcode.Pow, flags: cmdReturn, sig: "fff"}, "random": {op: opcode.Random, sig: "fff"},
 	"arraylen": {op: opcode.ObjSize, sig: "fo"}, "sarraylen": {op: opcode.ObjSize, sig: "fo"}, "setarray": {op: opcode.SetArray, sig: "-of"},
 	"getangle": {op: opcode.GetAngle, flags: cmdReturn, sig: "fff"}, "getdir": {op: opcode.GetDir, flags: cmdReturn, sig: "fff"}, "waitfor": {op: opcode.WaitFor, flags: cmdReturn, sig: "xssf"},
 	"format": {op: opcode.Format, flags: cmdUseArray | cmdReverseArgs | cmdReturn, sig: "xs"}, "makevar": {op: opcode.MakeVar, sig: "s", convert: opcode.ConvToString},
